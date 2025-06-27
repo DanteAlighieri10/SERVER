@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!Usa: python minecraft_server.py en el terminal para iniciar el server
 """
 Servidor de Minecraft para GitHub Codespaces
 Configuración automática con Playit para acceso público
