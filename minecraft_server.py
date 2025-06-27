@@ -1,4 +1,4 @@
-#!Usa python minecraft_server.py en el terminal para iniciar el servidor
+#!/usr/bin/env python3
 """
 Servidor de Minecraft para GitHub Codespaces
 Configuración automática con Playit para acceso público
@@ -260,10 +260,310 @@ java -Xmx2G -Xms1G -jar server.jar nogui
         
         print("✅ Configuración de Playit creada")
 
-    def save_config(self, config):
-        """Guarda la configuración del servidor"""
-        with open(self.config_file, "w") as f:
-            json.dump(config, f, indent=2)
+    def setup_playit_tunnel(self):
+        """Configura el túnel de Playit y obtiene la IP pública"""
+        self.clear_screen()
+        self.print_header()
+        
+        print("🌐 CONFIGURACIÓN DE PLAYIT")
+        print("=" * 30)
+        print()
+        print("Para hacer tu servidor accesible públicamente, necesitas:")
+        print("1. Ejecutar Playit en segundo plano")
+        print("2. Obtener el túnel/IP que te proporciona")
+        print("3. Configurarlo en este programa")
+        print()
+        
+        print("📋 Instrucciones:")
+        print("1. Abre una nueva terminal")
+        print("2. Ejecuta: ./playit")
+        print("3. Sigue las instrucciones de Playit")
+        print("4. Copia el túnel/IP que te dé")
+        print("5. Regresa aquí y pégalo")
+        print()
+        
+        # Preguntar si ya tiene el túnel o quiere iniciarlo automáticamente
+        options = [
+            "Ya tengo el túnel de Playit (ingresar manualmente)",
+            "Iniciar Playit automáticamente",
+            "Volver al menú anterior"
+        ]
+        
+        self.print_menu("¿Qué deseas hacer?", options)
+        choice = self.get_user_choice(len(options))
+        
+        if choice == 0:  # Ingresar manualmente
+            tunnel_ip = input("\n🔗 Ingresa el túnel/IP de Playit (ej: abc123.playit.gg:12345): ").strip()
+            if tunnel_ip:
+                return self.save_playit_tunnel(tunnel_ip)
+            else:
+                print("❌ No ingresaste ningún túnel")
+                return False
+                
+        elif choice == 1:  # Iniciar automáticamente
+            return self.start_playit_automatic()
+            
+        else:  # Volver
+            return False
+
+    def save_playit_tunnel(self, tunnel_ip):
+        """Guarda el túnel de Playit en la configuración"""
+        config = self.load_config()
+        if config:
+            config['playit_tunnel'] = tunnel_ip
+            config['tunnel_configured_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.save_config(config)
+            
+            print(f"✅ Túnel guardado: {tunnel_ip}")
+            print()
+            print("🎮 Tu servidor será accesible en:")
+            print(f"   └─ {tunnel_ip}")
+            print()
+            input("Presiona Enter para continuar...")
+            return True
+        else:
+            print("❌ No hay configuración de servidor disponible")
+            return False
+
+    def start_playit_automatic(self):
+        """Inicia Playit automáticamente en segundo plano"""
+        print("🚀 Iniciando Playit automáticamente...")
+        print()
+        print("⚠️  IMPORTANTE:")
+        print("- Playit se ejecutará en segundo plano")
+        print("- Revisa los logs para obtener tu túnel/IP")
+        print("- Guarda el túnel cuando aparezca")
+        print()
+        
+        try:
+            # Crear script para ejecutar Playit en background
+            playit_script = """#!/bin/bash
+echo "🌐 Iniciando Playit..."
+echo "Logs guardados en playit.log"
+./playit > playit.log 2>&1 &
+echo "✅ Playit iniciado en segundo plano (PID: $!)"
+echo "📝 Revisa playit.log para ver el túnel/IP"
+echo "📋 Comando útil: tail -f playit.log"
+"""
+            
+            with open("start_playit.sh", "w") as f:
+                f.write(playit_script)
+            
+            os.chmod("start_playit.sh", 0o755)
+            
+            # Ejecutar el script
+            os.system("./start_playit.sh")
+            
+            print("✅ Playit iniciado")
+            print("📝 Logs en: playit.log")
+            print("🔍 Ver logs: tail -f playit.log")
+            print()
+            
+            # Preguntar si quiere ingresar el túnel ahora
+            wait_choice = input("¿Quieres ingresar el túnel ahora? (s/n): ").lower().strip()
+            if wait_choice in ['s', 'si', 'yes', 'y']:
+                tunnel_ip = input("🔗 Ingresa el túnel/IP de Playit: ").strip()
+                if tunnel_ip:
+                    return self.save_playit_tunnel(tunnel_ip)
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error iniciando Playit: {e}")
+            return False
+
+    def start_minecraft_server(self):
+        """Inicia el servidor de Minecraft"""
+        config = self.load_config()
+        
+        if not config:
+            print("❌ No hay servidor configurado")
+            input("Presiona Enter para continuar...")
+            return False
+        
+        self.clear_screen()
+        self.print_header()
+        
+        print("🚀 INICIAR SERVIDOR DE MINECRAFT")
+        print("=" * 35)
+        print()
+        
+        # Mostrar información del servidor
+        print("📋 Información del servidor:")
+        print(f"   Versión: {config['version']}")
+        print(f"   Tipo: {config['server_type']}")
+        print(f"   Región: {config['region']}")
+        
+        if 'playit_tunnel' in config:
+            print(f"   🌐 Túnel público: {config['playit_tunnel']}")
+        else:
+            print("   ⚠️  Sin túnel público configurado")
+        
+        print()
+        
+        # Verificar si existe el servidor físicamente
+        if not (self.server_dir / "server.jar").exists():
+            print("❌ Archivo del servidor no encontrado")
+            print("Necesitas crear el servidor primero")
+            input("Presiona Enter para continuar...")
+            return False
+        
+        # Opciones de inicio
+        options = [
+            "Iniciar servidor ahora",
+            "Iniciar servidor + Playit automáticamente",
+            "Solo mostrar comando de inicio",
+            "Configurar túnel de Playit primero",
+            "Volver al menú anterior"
+        ]
+        
+        self.print_menu("¿Cómo quieres iniciar el servidor?", options)
+        choice = self.get_user_choice(len(options))
+        
+        if choice == 0:  # Solo servidor
+            return self.run_minecraft_server()
+            
+        elif choice == 1:  # Servidor + Playit
+            return self.run_server_with_playit()
+            
+        elif choice == 2:  # Mostrar comando
+            self.show_start_commands()
+            return True
+            
+        elif choice == 3:  # Configurar túnel
+            self.setup_playit_tunnel()
+            return True
+            
+        else:  # Volver
+            return True
+
+    def run_minecraft_server(self):
+        """Ejecuta solo el servidor de Minecraft"""
+        print("🚀 Iniciando servidor de Minecraft...")
+        print()
+        print("⚠️  IMPORTANTE:")
+        print("- El servidor se ejecutará en esta terminal")
+        print("- Para detenerlo, usa Ctrl+C o escribe 'stop'")
+        print("- Para acceso público, necesitas Playit corriendo")
+        print()
+        
+        input("Presiona Enter para continuar...")
+        
+        try:
+            os.chdir(self.server_dir)
+            print("🎮 Servidor iniciando...")
+            os.system("java -Xmx2G -Xms1G -jar server.jar nogui")
+        except KeyboardInterrupt:
+            print("\n🛑 Servidor detenido por el usuario")
+        except Exception as e:
+            print(f"❌ Error al iniciar servidor: {e}")
+        finally:
+            os.chdir("..")
+        
+        input("Presiona Enter para volver al menú...")
+        return True
+
+    def run_server_with_playit(self):
+        """Ejecuta el servidor y Playit automáticamente"""
+        print("🚀 Iniciando servidor + Playit...")
+        print()
+        
+        # Crear script combinado
+        combined_script = """#!/bin/bash
+echo "🌐 Iniciando Playit en segundo plano..."
+./playit > playit.log 2>&1 &
+PLAYIT_PID=$!
+echo "✅ Playit iniciado (PID: $PLAYIT_PID)"
+
+echo "⏳ Esperando 3 segundos..."
+sleep 3
+
+echo "🎮 Iniciando servidor de Minecraft..."
+cd minecraft_server
+java -Xmx2G -Xms1G -jar server.jar nogui
+
+echo "🛑 Servidor detenido, cerrando Playit..."
+kill $PLAYIT_PID 2>/dev/null
+"""
+        
+        with open("start_both.sh", "w") as f:
+            f.write(combined_script)
+        
+        os.chmod("start_both.sh", 0o755)
+        
+        print("📋 Se iniciará:")
+        print("1. Playit en segundo plano")
+        print("2. Servidor de Minecraft")
+        print()
+        print("📝 Logs de Playit en: playit.log")
+        print("🔍 Ver túnel: tail -f playit.log")
+        print()
+        
+        input("Presiona Enter para iniciar...")
+        
+        try:
+            os.system("./start_both.sh")
+        except KeyboardInterrupt:
+            print("\n🛑 Detenido por el usuario")
+        
+        input("Presiona Enter para volver al menú...")
+        return True
+
+    def show_start_commands(self):
+        """Muestra los comandos para iniciar manualmente"""
+        config = self.load_config()
+        
+        print("📋 COMANDOS DE INICIO MANUAL")
+        print("=" * 35)
+        print()
+        
+        print("🎮 Para iniciar solo el servidor:")
+        print("   cd minecraft_server")
+        print("   java -Xmx2G -Xms1G -jar server.jar nogui")
+        print()
+        
+        print("🌐 Para iniciar Playit (en otra terminal):")
+        print("   ./playit")
+        print()
+        
+        print("🚀 Para iniciar ambos automáticamente:")
+        print("   ./start_both.sh")
+        print()
+        
+        print("📝 Ver logs de Playit:")
+        print("   tail -f playit.log")
+        print()
+        
+        if 'playit_tunnel' in config:
+            print(f"🔗 Tu servidor público: {config['playit_tunnel']}")
+        else:
+            print("⚠️  Recuerda configurar el túnel de Playit")
+        
+        print()
+        input("Presiona Enter para continuar...")
+
+    def check_playit_status(self):
+        """Verifica el estado de Playit"""
+        print("🔍 Verificando estado de Playit...")
+        
+        # Verificar si Playit está corriendo
+        result = os.system("pgrep -f playit > /dev/null 2>&1")
+        
+        if result == 0:
+            print("✅ Playit está corriendo")
+            
+            # Intentar leer el log
+            if os.path.exists("playit.log"):
+                print("📝 Últimas líneas del log:")
+                os.system("tail -n 5 playit.log")
+            else:
+                print("📝 No se encontró archivo de log")
+        else:
+            print("❌ Playit no está corriendo")
+            print("💡 Puedes iniciarlo con: ./playit")
+        
+        print()
+        input("Presiona Enter para continuar...")
 
     def load_config(self):
         """Carga la configuración del servidor"""
@@ -341,21 +641,31 @@ java -Xmx2G -Xms1G -jar server.jar nogui
                 print(f"❌ Error en: {step_name}")
                 return False
             time.sleep(0.5)
-        
-        print("\n🎉 ¡SERVIDOR CREADO EXITOSAMENTE!")
+
+print("\n🎉 ¡SERVIDOR CREADO EXITOSAMENTE!")
         print("=" * 35)
         print()
-        print("📝 Instrucciones para iniciar:")
-        print("1. Ejecuta: ./start_server.sh")
-        print("2. En otra terminal ejecuta: ./playit")
-        print("3. Sigue las instrucciones de Playit para obtener la URL pública")
+        print("🎯 Próximos pasos:")
+        print("1. 🌐 Configurar túnel de Playit")
+        print("2. 🚀 Iniciar el servidor")
+        print("3. 🎮 ¡Jugar!")
         print()
-        print("🔗 Tu servidor estará disponible públicamente através de Playit")
+        print("💡 Consejo: Ve a 'Gestionar servidor' para configurar Playit")
         print()
+        
+        # Preguntar si quiere configurar Playit ahora
+        setup_now = input("¿Quieres configurar Playit ahora? (s/n): ").lower().strip()
+        if setup_now in ['s', 'si', 'yes', 'y']:
+            self.setup_playit_tunnel()
         
         input("Presiona Enter para continuar...")
 
-    def manage_server_menu(self):
+    def save_config(self, config):
+        """Guarda la configuración del servidor"""
+        with open(self.config_file, "w") as f:
+            json.dump(config, f, indent=2)
+
+def manage_server_menu(self):
         """Menú para gestionar servidor existente"""
         config = self.load_config()
         
@@ -373,38 +683,126 @@ java -Xmx2G -Xms1G -jar server.jar nogui
         print(f"Versión: {config['version']}")
         print(f"Tipo: {config['server_type']}")
         print(f"Región: {config['region']}")
-        print()
+        
+        if 'playit_tunnel' in config:
+            print(f"🌐 Túnel: {config['playit_tunnel']}")
+        else:
+            print("⚠️  Sin túnel configurado")
+
+print()
         
         options = [
-            "Iniciar servidor",
-            "Iniciar Playit",
-            "Ver archivos del servidor",
-            "Eliminar servidor",
-            "Volver al menú principal"
+            "🚀 Iniciar servidor",
+            "🌐 Configurar túnel de Playit",
+            "🔍 Ver estado de Playit",
+            "📁 Ver archivos del servidor",
+            "📋 Mostrar comandos manuales",
+            "⚠️  Eliminar servidor",
+            "🔙 Volver al menú principal"
         ]
         
         self.print_menu("Opciones disponibles:", options)
         choice = self.get_user_choice(len(options))
         
         if choice == 0:  # Iniciar servidor
-            print("🚀 Iniciando servidor...")
-            os.system("./start_server.sh")
-        elif choice == 1:  # Iniciar Playit
-            print("🌐 Iniciando Playit...")
-            os.system("./playit")
-        elif choice == 2:  # Ver archivos
-            print("📁 Archivos del servidor:")
-            os.system("ls -la minecraft_server/")
-            input("Presiona Enter para continuar...")
-        elif choice == 3:  # Eliminar servidor
-            confirm = input("⚠️  ¿Estás seguro de eliminar el servidor? (s/n): ")
-            if confirm.lower() in ['s', 'si', 'yes', 'y']:
-                shutil.rmtree(self.server_dir, ignore_errors=True)
-                self.config_file.unlink(missing_ok=True)
-                print("✅ Servidor eliminado")
+            self.start_minecraft_server()
+        elif choice == 1:  # Configurar túnel
+            self.setup_playit_tunnel()
+        elif choice == 2:  # Ver estado Playit
+            self.check_playit_status()
+        elif choice == 3:  # Ver archivos
+            self.show_server_files()
+        elif choice == 4:  # Comandos manuales
+            self.show_start_commands()
+        elif choice == 5:  # Eliminar servidor
+            self.delete_server()
+        elif choice == 6:  # Volver
+            return
+
+    def show_server_files(self):
+        """Muestra los archivos del servidor"""
+        print("📁 ARCHIVOS DEL SERVIDOR")
+        print("=" * 30)
+        print()
+        
+        if self.server_dir.exists():
+            print("📂 Contenido de minecraft_server/:")
+            os.system(f"ls -la {self.server_dir}/")
+            print()
+            
+            # Mostrar archivos importantes
+            important_files = ["server.properties", "eula.txt", "server.jar"]
+            for file in important_files:
+                file_path = self.server_dir / file
+                if file_path.exists():
+                    print(f"✅ {file} - OK")
+                else:
+                    print(f"❌ {file} - FALTANTE")
+        else:
+            print("❌ Directorio del servidor no existe")
+
+print()
+        print("📋 Otros archivos importantes:")
+        other_files = ["playit", "playit.toml", "playit.log", "start_both.sh"]
+        for file in other_files:
+            if os.path.exists(file):
+                print(f"✅ {file} - OK")
+            else:
+                print(f"❌ {file} - FALTANTE")
+        
+        print()
+        input("Presiona Enter para continuar...")
+
+    def delete_server(self):
+        """Elimina el servidor"""
+        print("⚠️  ELIMINAR SERVIDOR")
+        print("=" * 25)
+        print()
+        print("🚨 ADVERTENCIA:")
+        print("Esta acción eliminará permanentemente:")
+        print("• Todos los archivos del servidor")
+        print("• Mundos guardados")
+        print("• Configuraciones")
+        print("• Scripts de inicio")
+        print()
+
+confirm1 = input("¿Estás seguro? Escribe 'ELIMINAR' para confirmar: ").strip()
+        
+        if confirm1 == "ELIMINAR":
+            confirm2 = input("Última confirmación, escribe 'SI' para eliminar: ").strip()
+            
+            if confirm2 == "SI":
+                try:
+                    # Detener procesos si están corriendo
+                    os.system("pkill -f java.*server.jar 2>/dev/null")
+                    os.system("pkill -f playit 2>/dev/null")
+                    
+                    # Eliminar archivos
+                    if self.server_dir.exists():
+                        shutil.rmtree(self.server_dir)
+                    
+                    files_to_remove = [
+                        "server_config.json", "playit", "playit.toml", 
+                        "playit.log", "start_server.sh", "start_both.sh", 
+                        "start_playit.sh"
+                    ]
+                    
+                    for file in files_to_remove:
+                        if os.path.exists(file):
+                            os.remove(file)
+
+print("✅ Servidor eliminado completamente")
+                    print("🔄 Puedes crear un nuevo servidor desde el menú principal")
+                    
+                except Exception as e:
+                    print(f"❌ Error eliminando servidor: {e}")
             else:
                 print("❌ Eliminación cancelada")
-            input("Presiona Enter para continuar...")
+        else:
+            print("❌ Eliminación cancelada")
+        
+        print()
+        input("Presiona Enter para continuar...")
 
     def main_menu(self):
         """Menú principal"""
@@ -418,8 +816,8 @@ java -Xmx2G -Xms1G -jar server.jar nogui
                 "📖 Ayuda",
                 "🚪 Salir"
             ]
-            
-            self.print_menu("Menú Principal:", options)
+
+self.print_menu("Menú Principal:", options)
             choice = self.get_user_choice(len(options))
             
             if choice == 0:  # Crear servidor
@@ -444,7 +842,7 @@ java -Xmx2G -Xms1G -jar server.jar nogui
 Este programa configura automáticamente un servidor de Minecraft
 en GitHub Codespaces y lo hace accesible públicamente usando Playit.
 
-🔧 Tipos de servidor disponibles:
+        🔧 Tipos de servidor disponibles:
 • Vanilla: Servidor oficial de Minecraft
 • Paper: Optimizado con soporte para plugins
 • Fabric: Para mods del lado del servidor
@@ -493,7 +891,7 @@ if __name__ == "__main__":
         print("❌ Java no está instalado")
         print("Instala Java con: sudo apt update && sudo apt install openjdk-17-jre-headless")
         sys.exit(1)
-    
-    # Iniciar el gestor del servidor
+        
+# Iniciar el gestor del servidor
     manager = MinecraftServerManager()
     manager.run()
