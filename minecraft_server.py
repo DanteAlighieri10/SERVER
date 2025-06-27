@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#!Usa: python minecraft_server.py "en el terminal para iniciar el server".
 
 import os
 import sys
@@ -9,6 +8,7 @@ import requests
 import subprocess
 import zipfile
 import shutil
+import threading
 from pathlib import Path
 
 class MinecraftServerManager:
@@ -47,25 +47,14 @@ class MinecraftServerManager:
                 "base": "forge"
             }
         }
-        
-        self.ngrok_regions = {
-            "us": "Estados Unidos (Ohio)",
-            "us-cal-1": "Estados Unidos (California)",
-            "eu": "Europa (Frankfurt)",
-            "ap": "Asia/Pacífico (Singapore)",
-            "au": "Australia (Sydney)",
-            "jp": "Japón (Tokyo)",
-            "sa": "Sudamérica (São Paulo)",
-            "in": "India (Mumbai)"
-        }
 
     def clear_screen(self):
         os.system('clear' if os.name == 'posix' else 'cls')
 
     def print_header(self):
-        print("=" * 60)
-        print("🎮 GESTOR DE SERVIDOR MINECRAFT - GITHUB CODESPACES 🎮")
-        print("=" * 60)
+        print("=" * 65)
+        print("🎮 SERVIDOR MINECRAFT CON PLAYIT - GITHUB CODESPACES 🎮")
+        print("=" * 65)
         print()
 
     def setup_gitignore(self):
@@ -108,9 +97,9 @@ usercache.json
 usernamecache.json
 eula.txt
 
-# Ngrok
-ngrok
-ngrok.yml
+# Playit
+playit
+playit.toml
 """
         with open(".gitignore", "w") as f:
             f.write(gitignore_content.strip())
@@ -120,21 +109,29 @@ ngrok.yml
         try:
             # Instalar Java si no está disponible
             subprocess.run(["sudo", "apt", "update"], check=True, capture_output=True)
-            subprocess.run(["sudo", "apt", "install", "-y", "openjdk-17-jdk", "wget", "unzip"], 
+            subprocess.run(["sudo", "apt", "install", "-y", "openjdk-17-jdk", "wget", "curl"], 
                          check=True, capture_output=True)
             
-            # Descargar ngrok si no existe
-            if not os.path.exists("ngrok"):
-                print("🌐 Descargando ngrok...")
-                ngrok_url = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"
-                subprocess.run(["wget", "-O", "ngrok.tgz", ngrok_url], check=True, capture_output=True)
-                subprocess.run(["tar", "xzf", "ngrok.tgz"], check=True, capture_output=True)
-                subprocess.run(["chmod", "+x", "ngrok"], check=True, capture_output=True)
-                os.remove("ngrok.tgz")
+            # Descargar playit si no existe
+            if not os.path.exists("playit"):
+                print("🌐 Descargando Playit...")
+                playit_url = "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-linux"
+                response = requests.get(playit_url)
+                if response.status_code == 200:
+                    with open("playit", "wb") as f:
+                        f.write(response.content)
+                    os.chmod("playit", 0o755)
+                    print("✅ Playit descargado correctamente")
+                else:
+                    print("❌ Error descargando Playit")
+                    return False
             
             return True
         except subprocess.CalledProcessError as e:
             print(f"❌ Error instalando dependencias: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Error: {e}")
             return False
 
     def select_version(self):
@@ -177,7 +174,7 @@ ngrok.yml
             print(f"{i}. {info['name']}")
             print(f"   {info['description']}")
             if 'base' in info:
-                print(f"   (Requiere instalar {info['base']} primero)")
+                print(f"   (Puedes instalar {info['base']} desde gestionar después)")
             print()
         
         while True:
@@ -192,28 +189,35 @@ ngrok.yml
             except ValueError:
                 print("❌ Por favor, introduce un número válido")
 
-    def select_ngrok_region(self):
+    def setup_playit(self):
         self.clear_screen()
         self.print_header()
-        print("🌍 SELECCIONAR REGIÓN DE NGROK")
-        print("-" * 40)
-        
-        regions_list = list(self.ngrok_regions.keys())
-        for i, region in enumerate(regions_list, 1):
-            print(f"{i}. {region} - {self.ngrok_regions[region]}")
-        
+        print("🌐 CONFIGURACIÓN DE PLAYIT")
+        print("-" * 30)
         print()
-        while True:
-            try:
-                choice = input("Selecciona la región: ").strip()
-                choice_num = int(choice)
-                
-                if 1 <= choice_num <= len(regions_list):
-                    return regions_list[choice_num - 1]
-                else:
-                    print("❌ Opción inválida")
-            except ValueError:
-                print("❌ Por favor, introduce un número válido")
+        print("Para usar Playit necesitas:")
+        print("1. 📱 Ir a: https://playit.gg")
+        print("2. 🔑 Crear una cuenta gratuita")
+        print("3. 📋 Copiar tu código de túnel")
+        print()
+        print("💡 El código de túnel se ve así: 'claim-XXXXXXXXXX'")
+        print()
+        
+        tunnel_code = input("Ingresa tu código de túnel de Playit: ").strip()
+        
+        if not tunnel_code:
+            print("❌ Código de túnel requerido")
+            input("Presiona Enter para continuar...")
+            return None
+        
+        if not tunnel_code.startswith("claim-"):
+            print("⚠️ Advertencia: El código debería empezar con 'claim-'")
+            confirm = input("¿Continuar de todos modos? (s/n): ").strip().lower()
+            if confirm != 's':
+                return None
+        
+        print("✅ Código de túnel guardado")
+        return tunnel_code
 
     def download_server_jar(self, version, server_type):
         print(f"📥 Descargando servidor {server_type} para Minecraft {version}...")
@@ -233,30 +237,43 @@ ngrok.yml
                     
             elif server_type == "paper":
                 # Descargar Paper
+                print("📄 Obteniendo Paper...")
                 paper_api = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds"
                 response = requests.get(paper_api)
                 if response.status_code == 200:
                     builds = response.json()['builds']
                     latest_build = builds[-1]['build']
-                    url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/paper-{version}-{latest_build}.jar"
+                    filename = f"paper-{version}-{latest_build}.jar"
+                    url = f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}/downloads/{filename}"
                 else:
                     print(f"❌ No se pudo obtener Paper para la versión {version}")
                     return False
                     
             elif server_type == "fabric":
                 # Descargar Fabric
+                print("🧵 Obteniendo Fabric...")
                 fabric_api = f"https://meta.fabricmc.net/v2/versions/loader/{version}"
                 response = requests.get(fabric_api)
                 if response.status_code == 200:
                     loader_version = response.json()[0]['version']
-                    installer_version = "0.11.2"  # Versión estable del instalador
+                    installer_version = "0.11.2"
                     url = f"https://meta.fabricmc.net/v2/versions/loader/{version}/{loader_version}/{installer_version}/server/jar"
                 else:
                     print(f"❌ No se pudo obtener Fabric para la versión {version}")
                     return False
                     
             elif server_type == "forge":
-                print("⚠️ Forge requiere instalación manual. Descargando Vanilla por ahora...")
+                print("⚠️ Forge requiere instalación manual desde el menú de gestión.")
+                print("📥 Descargando Vanilla como base...")
+                if version in self.versions:
+                    url = self.versions[version]
+                else:
+                    print(f"❌ Versión {version} no disponible")
+                    return False
+                    
+            elif server_type == "mohist":
+                print("⚠️ Mohist requiere instalar Forge primero desde el menú de gestión.")
+                print("📥 Descargando Vanilla como base...")
                 if version in self.versions:
                     url = self.versions[version]
                 else:
@@ -264,16 +281,26 @@ ngrok.yml
                     return False
                     
             else:
-                print(f"❌ Tipo de servidor {server_type} no soportado aún")
+                print(f"❌ Tipo de servidor {server_type} no soportado")
                 return False
             
             # Descargar el archivo
+            print("⬇️ Descargando archivo del servidor...")
             response = requests.get(url, stream=True)
             if response.status_code == 200:
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                
                 with open(jar_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("✅ Servidor descargado exitosamente")
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                percent = (downloaded / total_size) * 100
+                                print(f"\r📊 Progreso: {percent:.1f}%", end="", flush=True)
+                
+                print("\n✅ Servidor descargado exitosamente")
                 return True
             else:
                 print(f"❌ Error descargando servidor: {response.status_code}")
@@ -284,9 +311,10 @@ ngrok.yml
             return False
 
     def configure_server(self):
+        print("⚙️ Configurando servidor...")
+        
         # Crear server.properties
-        server_properties = """
-# Configuración del servidor Minecraft
+        server_properties = """# Configuración del servidor Minecraft
 server-port=25565
 gamemode=survival
 difficulty=easy
@@ -294,8 +322,19 @@ max-players=20
 online-mode=false
 enable-command-block=true
 spawn-protection=0
-motd=Servidor Minecraft en GitHub Codespaces
+motd=\\u00A76Servidor Minecraft con Playit
 view-distance=10
+allow-flight=false
+white-list=false
+enforce-whitelist=false
+pvp=true
+generate-structures=true
+op-permission-level=4
+allow-nether=true
+level-name=world
+enable-query=false
+enable-rcon=false
+enable-status=true
 """
         
         properties_path = os.path.join(self.server_dir, "server.properties")
@@ -307,61 +346,97 @@ view-distance=10
         with open(eula_path, "w") as f:
             f.write("eula=true\n")
         
-        print("✅ Servidor configurado")
+        print("✅ Servidor configurado correctamente")
 
-    def setup_ngrok(self, region):
-        print("🌐 Configurando ngrok...")
-        
-        # Solicitar token de ngrok
-        token = input("Introduce tu token de ngrok (obtén uno gratis en https://ngrok.com): ").strip()
-        
-        if not token:
-            print("❌ Token de ngrok requerido")
-            return False
-        
+    def start_playit_tunnel(self, tunnel_code):
+        """Inicia el túnel de Playit en segundo plano"""
         try:
-            # Configurar ngrok
-            subprocess.run(["./ngrok", "config", "add-authtoken", token], check=True)
-            print("✅ Ngrok configurado")
+            print("🌐 Iniciando túnel Playit...")
+            
+            # Comando para iniciar playit con el código de túnel
+            cmd = ["./playit", "--secret_path", "playit.toml"]
+            
+            # Si es la primera vez, usar el código de claim
+            if tunnel_code.startswith("claim-"):
+                cmd = ["./playit", tunnel_code]
+            
+            # Iniciar proceso en segundo plano
+            self.playit_process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            # Dar tiempo para que se establezca la conexión
+            time.sleep(10)
+            
+            print("✅ Túnel Playit iniciado")
+            print("🌐 Tu servidor será accesible a través de Playit")
+            print("📱 Revisa tu panel en https://playit.gg para ver la IP pública")
+            
             return True
-        except subprocess.CalledProcessError:
-            print("❌ Error configurando ngrok")
+            
+        except Exception as e:
+            print(f"❌ Error iniciando Playit: {e}")
             return False
 
-    def start_server(self, region):
-        print("🚀 Iniciando servidor...")
+    def start_server(self, tunnel_code):
+        print("🚀 INICIANDO SERVIDOR MINECRAFT")
+        print("=" * 50)
         
         # Cambiar al directorio del servidor
+        original_dir = os.getcwd()
         os.chdir(self.server_dir)
         
         try:
-            # Iniciar ngrok en segundo plano
-            print("🌐 Iniciando túnel ngrok...")
-            ngrok_cmd = [f"..{os.sep}ngrok", "tcp", "25565", "--region", region]
-            ngrok_process = subprocess.Popen(ngrok_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Iniciar túnel Playit
+            playit_thread = threading.Thread(
+                target=self.start_playit_tunnel, 
+                args=(tunnel_code,)
+            )
+            playit_thread.daemon = True
+            playit_thread.start()
             
-            # Esperar un poco para que ngrok se inicie
+            # Esperar un poco para que Playit se inicie
             time.sleep(5)
             
-            # Obtener la URL de ngrok
-            try:
-                response = requests.get("http://localhost:4040/api/tunnels")
-                if response.status_code == 200:
-                    tunnels = response.json()['tunnels']
-                    if tunnels:
-                        public_url = tunnels[0]['public_url']
-                        host, port = public_url.replace('tcp://', '').split(':')
-                        print(f"🌐 Servidor disponible en: {host}:{port}")
-                        print("📋 Copia esta dirección para conectarte desde Minecraft")
-            except:
-                print("⚠️ No se pudo obtener la URL pública. Revisa ngrok manualmente.")
+            print("\n🎮 INFORMACIÓN IMPORTANTE:")
+            print("━" * 40)
+            print("📱 Ve a https://playit.gg y entra a tu cuenta")
+            print("🌐 En el panel verás la IP pública de tu servidor")
+            print("📋 Comparte esa IP con tus amigos para jugar")
+            print("⚠️  Usa 'stop' en la consola para detener el servidor")
+            print("━" * 40)
             
-            # Iniciar servidor de Minecraft
-            print("🎮 Iniciando Minecraft Server...")
-            print("⚠️ El servidor se iniciará. Usa 'stop' para detenerlo.")
+            print("\n🚀 Iniciando Minecraft Server...")
+            print("⏳ Esto puede tomar unos minutos la primera vez...")
             print("-" * 50)
             
-            java_cmd = ["java", "-Xmx2G", "-Xms1G", "-jar", "server.jar", "nogui"]
+            # Iniciar servidor de Minecraft
+            java_cmd = [
+                "java", 
+                "-Xmx2G", 
+                "-Xms1G", 
+                "-XX:+UseG1GC",
+                "-XX:+ParallelRefProcEnabled",
+                "-XX:MaxGCPauseMillis=200",
+                "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+DisableExplicitGC",
+                "-XX:G1NewSizePercent=30",
+                "-XX:G1MaxNewSizePercent=40",
+                "-XX:G1HeapRegionSize=8M",
+                "-XX:G1ReservePercent=20",
+                "-XX:G1HeapWastePercent=5",
+                "-XX:G1MixedGCCountTarget=4",
+                "-XX:InitiatingHeapOccupancyPercent=15",
+                "-XX:G1MixedGCLiveThresholdPercent=90",
+                "-XX:G1RSetUpdatingPauseTimePercent=5",
+                "-XX:SurvivorRatio=32",
+                "-XX:+PerfDisableSharedMem",
+                "-XX:MaxTenuringThreshold=1",
+                "-jar", "server.jar", "nogui"
+            ]
             subprocess.run(java_cmd)
             
         except KeyboardInterrupt:
@@ -371,22 +446,25 @@ view-distance=10
         finally:
             # Limpiar procesos
             try:
-                ngrok_process.terminate()
+                if hasattr(self, 'playit_process'):
+                    self.playit_process.terminate()
+                    print("🔌 Túnel Playit desconectado")
             except:
                 pass
-            os.chdir("..")
+            os.chdir(original_dir)
 
     def main_menu(self):
         while True:
             self.clear_screen()
             self.print_header()
             print("📋 MENÚ PRINCIPAL")
-            print("-" * 30)
+            print("-" * 35)
             print("1. 🆕 Crear Servidor")
             print("2. ▶️  Iniciar Servidor Existente")
             print("3. ⚙️  Gestionar Servidor")
-            print("4. 🔧 Configuración")
-            print("5. ❌ Salir")
+            print("4. 🔧 Configuración Playit")
+            print("5. ℹ️  Información")
+            print("6. ❌ Salir")
             print()
             
             choice = input("Selecciona una opción: ").strip()
@@ -396,10 +474,12 @@ view-distance=10
             elif choice == "2":
                 self.start_existing_server()
             elif choice == "3":
-                self.manage_server()
+                self.manage_server_menu()
             elif choice == "4":
-                self.configuration_menu()
+                self.playit_configuration()
             elif choice == "5":
+                self.show_info()
+            elif choice == "6":
                 print("👋 ¡Hasta luego!")
                 break
             else:
@@ -407,7 +487,8 @@ view-distance=10
                 input("Presiona Enter para continuar...")
 
     def create_server_workflow(self):
-        print("🆕 Iniciando proceso de creación de servidor...")
+        print("🆕 CREANDO NUEVO SERVIDOR...")
+        print("=" * 40)
         
         # Instalar dependencias
         if not self.install_dependencies():
@@ -420,13 +501,17 @@ view-distance=10
         # Seleccionar tipo de servidor
         server_type = self.select_server_type()
         
-        # Verificar dependencias del tipo de servidor
-        if server_type in ["paper", "mohist"] and server_type == "paper":
-            base_type = self.server_types[server_type].get("base", "vanilla")
-            print(f"ℹ️ {server_type} se basa en {base_type}")
+        # Mostrar información sobre dependencias
+        if server_type in ["paper", "mohist"]:
+            base_type = self.server_types[server_type].get("base")
+            if base_type:
+                print(f"ℹ️ Nota: Puedes instalar {server_type} después de instalar {base_type} desde el menú de gestión")
         
-        # Seleccionar región de ngrok
-        region = self.select_ngrok_region()
+        # Configurar Playit
+        tunnel_code = self.setup_playit()
+        if not tunnel_code:
+            input("❌ Configuración de Playit cancelada. Presiona Enter para continuar...")
+            return
         
         # Descargar servidor
         if not self.download_server_jar(version, server_type):
@@ -436,45 +521,229 @@ view-distance=10
         # Configurar servidor
         self.configure_server()
         
-        # Configurar ngrok
-        if not self.setup_ngrok(region):
-            input("❌ Error configurando ngrok. Presiona Enter para continuar...")
-            return
-        
         # Guardar configuración
         config = {
             "version": version,
             "server_type": server_type,
-            "region": region,
+            "tunnel_code": tunnel_code,
             "created": time.time()
         }
         
         with open(self.config_file, "w") as f:
             json.dump(config, f, indent=2)
         
+        print("\n✅ ¡Servidor creado exitosamente!")
+        print("=" * 40)
+        
         # Preguntar si iniciar ahora
         start_now = input("\n¿Deseas iniciar el servidor ahora? (s/n): ").strip().lower()
         if start_now == 's':
-            self.start_server(region)
+            self.start_server(tunnel_code)
 
     def start_existing_server(self):
         if not os.path.exists(self.config_file):
-            print("❌ No hay servidor configurado. Crea uno primero.")
+            print("❌ No hay servidor configurado.")
+            print("💡 Crea uno primero usando la opción 'Crear Servidor'")
             input("Presiona Enter para continuar...")
             return
         
-        with open(self.config_file, "r") as f:
-            config = json.load(f)
-        
-        print(f"▶️ Iniciando servidor {config['server_type']} v{config['version']}")
-        self.start_server(config['region'])
+        try:
+            with open(self.config_file, "r") as f:
+                config = json.load(f)
+            
+            print(f"▶️ Iniciando servidor {config['server_type']} v{config['version']}")
+            self.start_server(config['tunnel_code'])
+        except Exception as e:
+            print(f"❌ Error cargando configuración: {e}")
+            input("Presiona Enter para continuar...")
 
-    def manage_server(self):
-        print("⚙️ Gestión de servidor - Próximamente")
+    def manage_server_menu(self):
+        while True:
+            self.clear_screen()
+            self.print_header()
+            print("⚙️ GESTIONAR SERVIDOR")
+            print("-" * 30)
+            print("1. 📊 Estado del Servidor")
+            print("2. 🔧 Instalar Mohist (después de Forge)")
+            print("3. 📄 Instalar Paper (después de Vanilla)")
+            print("4. 🧵 Instalar Purpur (después de Fabric)")
+            print("5. 🗑️  Eliminar Servidor")
+            print("6. 🔙 Volver al Menú Principal")
+            print()
+            
+            choice = input("Selecciona una opción: ").strip()
+            
+            if choice == "1":
+                self.show_server_status()
+            elif choice == "2":
+                self.install_mohist()
+            elif choice == "3":
+                self.install_paper()
+            elif choice == "4":
+                self.install_purpur()
+            elif choice == "5":
+                self.delete_server()
+            elif choice == "6":
+                break
+            else:
+                print("❌ Opción inválida")
+                input("Presiona Enter para continuar...")
+
+    def show_server_status(self):
+        self.clear_screen()
+        self.print_header()
+        print("📊 ESTADO DEL SERVIDOR")
+        print("-" * 30)
+        
+        if os.path.exists(self.config_file):
+            with open(self.config_file, "r") as f:
+                config = json.load(f)
+            
+            print(f"✅ Servidor configurado:")
+            print(f"   📦 Tipo: {config['server_type']}")
+            print(f"   🎯 Versión: {config['version']}")
+            print(f"   📅 Creado: {time.ctime(config['created'])}")
+            
+            if os.path.exists(self.server_dir):
+                print(f"   📁 Directorio: ✅ Existente")
+                if os.path.exists(os.path.join(self.server_dir, "server.jar")):
+                    print(f"   ☕ JAR: ✅ Presente")
+                else:
+                    print(f"   ☕ JAR: ❌ Faltante")
+            else:
+                print(f"   📁 Directorio: ❌ Faltante")
+                
+        else:
+            print("❌ No hay servidor configurado")
+        
+        input("\nPresiona Enter para continuar...")
+
+    def install_mohist(self):
+        print("🔥 Instalando Mohist...")
+        print("⚠️ Esta función estará disponible próximamente")
         input("Presiona Enter para continuar...")
 
-    def configuration_menu(self):
-        print("🔧 Configuración - Próximamente")
+    def install_paper(self):
+        print("📄 Instalando Paper...")
+        print("⚠️ Esta función estará disponible próximamente")
+        input("Presiona Enter para continuar...")
+
+    def install_purpur(self):
+        print("💜 Instalando Purpur...")
+        print("⚠️ Esta función estará disponible próximamente")
+        input("Presiona Enter para continuar...")
+
+    def delete_server(self):
+        print("🗑️ ELIMINAR SERVIDOR")
+        print("-" * 25)
+        print("⚠️ Esta acción eliminará todos los archivos del servidor")
+        confirm = input("¿Estás seguro? Escribe 'ELIMINAR' para confirmar: ").strip()
+        
+        if confirm == "ELIMINAR":
+            try:
+                if os.path.exists(self.server_dir):
+                    shutil.rmtree(self.server_dir)
+                if os.path.exists(self.config_file):
+                    os.remove(self.config_file)
+                print("✅ Servidor eliminado correctamente")
+            except Exception as e:
+                print(f"❌ Error eliminando servidor: {e}")
+        else:
+            print("❌ Eliminación cancelada")
+        
+        input("Presiona Enter para continuar...")
+
+    def playit_configuration(self):
+        self.clear_screen()
+        self.print_header()
+        print("🔧 CONFIGURACIÓN PLAYIT")
+        print("-" * 30)
+        print("1. 🔑 Cambiar código de túnel")
+        print("2. 📱 Abrir panel de Playit")
+        print("3. ❓ Ayuda con Playit")
+        print("4. 🔙 Volver")
+        print()
+        
+        choice = input("Selecciona una opción: ").strip()
+        
+        if choice == "1":
+            new_code = self.setup_playit()
+            if new_code and os.path.exists(self.config_file):
+                with open(self.config_file, "r") as f:
+                    config = json.load(f)
+                config["tunnel_code"] = new_code
+                with open(self.config_file, "w") as f:
+                    json.dump(config, f, indent=2)
+                print("✅ Código actualizado")
+            input("Presiona Enter para continuar...")
+        elif choice == "2":
+            print("🌐 Abre tu navegador y ve a: https://playit.gg")
+            input("Presiona Enter para continuar...")
+        elif choice == "3":
+            self.show_playit_help()
+        elif choice == "4":
+            return
+        else:
+            print("❌ Opción inválida")
+            input("Presiona Enter para continuar...")
+
+    def show_playit_help(self):
+        self.clear_screen()
+        self.print_header()
+        print("❓ AYUDA CON PLAYIT")
+        print("-" * 25)
+        print()
+        print("🔗 ¿Qué es Playit?")
+        print("   Playit es un servicio que crea túneles para hacer")
+        print("   tu servidor accesible desde internet de forma gratuita.")
+        print()
+        print("📱 ¿Cómo obtener un código de túnel?")
+        print("   1. Ve a https://playit.gg")
+        print("   2. Crea una cuenta gratuita")
+        print("   3. Haz clic en 'Create Tunnel'")
+        print("   4. Selecciona 'Minecraft Java Edition'")
+        print("   5. Copia el código que empieza con 'claim-'")
+        print()
+        print("🌐 ¿Cómo conectarse al servidor?")
+        print("   1. Inicia tu servidor con este script")
+        print("   2. Ve a tu panel en playit.gg")
+        print("   3. Verás la IP pública (ej: example.playit.gg)")
+        print("   4. Úsala en Minecraft para conectarte")
+        print()
+        print("💡 Consejos:")
+        print("   • Playit es gratuito pero tiene límites de ancho de banda")
+        print("   • La IP puede cambiar si reinicias el túnel")
+        print("   • Guarda tu código de túnel para reutilizarlo")
+        print()
+        input("Presiona Enter para continuar...")
+
+    def show_info(self):
+        self.clear_screen()
+        self.print_header()
+        print("ℹ️ INFORMACIÓN DEL SISTEMA")
+        print("-" * 35)
+        print()
+        print("📋 Versiones Disponibles:")
+        for version in self.versions.keys():
+            print(f"   • Minecraft {version}")
+        print()
+        print("⚙️ Tipos de Servidor:")
+        print("   • Vanilla - Servidor oficial")
+        print("   • Paper - Optimizado + plugins")
+        print("   • Forge - Mods de Forge")
+        print("   • Fabric - Mods ligeros")
+        print("   • Mohist - Forge + Bukkit (instalar después)")
+        print()
+        print("🌐 Características:")
+        print("   • Integración completa con Playit")
+        print("   • Configuración automática")
+        print("   • Soporte para GitHub Codespaces")
+        print("   • Gestión de dependências")
+        print()
+        print("🔗 Enlaces útiles:")
+        print("   • Playit: https://playit.gg")
+        print("   • Minecraft: https://minecraft.net")
+        print()
         input("Presiona Enter para continuar...")
 
 def main():
@@ -482,8 +751,23 @@ def main():
     manager = MinecraftServerManager()
     manager.setup_gitignore()
     
-    print("🎮 Bienvenido al Gestor de Servidor Minecraft para GitHub Codespaces")
-    print("📝 Asegúrate de tener una cuenta en ngrok.com para obtener tu token")
+    manager.clear_screen()
+    manager.print_header()
+    print("🎮 ¡Bienvenido al Gestor de Servidor Minecraft con Playit!")
+    print()
+    print("📝 Instrucciones rápidas:")
+    print("   1. Ve a https://playit.gg y crea una cuenta")
+    print("   2. Crea un túnel para Minecraft Java Edition")
+    print("   3. Copia tu código (claim-XXXXXXXXXX)")
+    print("   4. ¡Usa este script para configurar todo automáticamente!")
+    print()
+    print("🚀 Características:")
+    print("   • Soporte completo para Playit")
+    print("   • Instalación automática de dependencias")
+    print("   • Múltiples tipos de servidor (Vanilla, Paper, Forge, Fabric)")
+    print("   • Configuración automática optimizada")
+    print("   • Compatible con GitHub Codespaces")
+    print()
     input("Presiona Enter para continuar...")
     
     manager.main_menu()
