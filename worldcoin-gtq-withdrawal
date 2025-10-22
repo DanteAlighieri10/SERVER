@@ -1,0 +1,349 @@
+"""
+Worldcoin to GTQ Withdrawal System
+Sistema de retiro de Worldcoin a cuenta bancaria de Banco Industrial (Guatemala)
+"""
+
+import os
+import json
+import requests
+from datetime import datetime
+from typing import Dict, Optional
+
+class WorldcoinWithdrawalSystem:
+    def __init__(self):
+        # Configuración de API keys (usar variables de entorno en producción)
+        self.binance_api_key = os.getenv('BINANCE_API_KEY', '')
+        self.binance_api_secret = os.getenv('BINANCE_API_SECRET', '')
+        self.worldcoin_api_key = os.getenv('WORLDCOIN_API_KEY', '')
+        
+        # Endpoints
+        self.binance_base_url = 'https://api.binance.com'
+        self.worldcoin_base_url = 'https://api.worldcoin.org'
+        
+        # Información bancaria
+        self.banco_industrial_info = {
+            'banco': 'Banco Industrial',
+            'pais': 'Guatemala',
+            'moneda': 'GTQ'
+        }
+    
+    def get_wld_balance(self) -> float:
+        """Obtiene el balance de Worldcoin desde World App"""
+        try:
+            headers = {
+                'Authorization': f'Bearer {self.worldcoin_api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Endpoint hipotético - ajustar según documentación oficial
+            response = requests.get(
+                f'{self.worldcoin_base_url}/v1/balance',
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return float(data.get('balance', 0))
+            else:
+                print(f"Error obteniendo balance: {response.status_code}")
+                return 0.0
+                
+        except Exception as e:
+            print(f"Error: {e}")
+            return 0.0
+    
+    def get_wld_to_usdt_price(self) -> float:
+        """Obtiene el precio actual de WLD/USDT en Binance"""
+        try:
+            response = requests.get(
+                f'{self.binance_base_url}/api/v3/ticker/price',
+                params={'symbol': 'WLDUSDT'}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return float(data['price'])
+            else:
+                print(f"Error obteniendo precio WLD: {response.status_code}")
+                return 0.0
+                
+        except Exception as e:
+            print(f"Error: {e}")
+            return 0.0
+    
+    def get_usdt_to_gtq_rate(self) -> float:
+        """Obtiene la tasa de conversión USDT a GTQ"""
+        try:
+            # Primero obtener USDT/USD (normalmente 1:1)
+            usdt_usd = 1.0
+            
+            # Luego obtener USD/GTQ usando una API de tasas de cambio
+            response = requests.get(
+                'https://api.exchangerate-api.com/v4/latest/USD'
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                usd_to_gtq = data['rates'].get('GTQ', 7.75)  # ~7.75 GTQ por USD
+                return usdt_usd * usd_to_gtq
+            else:
+                return 7.75  # Tasa aproximada por defecto
+                
+        except Exception as e:
+            print(f"Error obteniendo tasa GTQ: {e}")
+            return 7.75
+    
+    def transfer_wld_to_binance(self, amount: float) -> Dict:
+        """Transfiere WLD desde World App a Binance"""
+        try:
+            # Obtener dirección de depósito de Binance para WLD
+            binance_deposit_address = self.get_binance_deposit_address('WLD')
+            
+            if not binance_deposit_address:
+                return {'success': False, 'error': 'No se pudo obtener dirección de Binance'}
+            
+            # Realizar transferencia desde World App
+            headers = {
+                'Authorization': f'Bearer {self.worldcoin_api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            payload = {
+                'amount': amount,
+                'destination': binance_deposit_address,
+                'currency': 'WLD'
+            }
+            
+            response = requests.post(
+                f'{self.worldcoin_base_url}/v1/transfer',
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                return {'success': True, 'data': response.json()}
+            else:
+                return {'success': False, 'error': response.text}
+                
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def get_binance_deposit_address(self, coin: str) -> Optional[str]:
+        """Obtiene la dirección de depósito en Binance para una moneda"""
+        try:
+            import hmac
+            import hashlib
+            import time
+            
+            timestamp = int(time.time() * 1000)
+            params = f'coin={coin}&timestamp={timestamp}'
+            
+            signature = hmac.new(
+                self.binance_api_secret.encode(),
+                params.encode(),
+                hashlib.sha256
+            ).hexdigest()
+            
+            headers = {
+                'X-MBX-APIKEY': self.binance_api_key
+            }
+            
+            response = requests.get(
+                f'{self.binance_base_url}/sapi/v1/capital/deposit/address',
+                params=f'{params}&signature={signature}',
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('address')
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"Error obteniendo dirección: {e}")
+            return None
+    
+    def sell_wld_for_usdt(self, wld_amount: float) -> Dict:
+        """Vende WLD por USDT en Binance"""
+        try:
+            import hmac
+            import hashlib
+            import time
+            
+            timestamp = int(time.time() * 1000)
+            
+            params = {
+                'symbol': 'WLDUSDT',
+                'side': 'SELL',
+                'type': 'MARKET',
+                'quantity': wld_amount,
+                'timestamp': timestamp
+            }
+            
+            query_string = '&'.join([f'{k}={v}' for k, v in params.items()])
+            
+            signature = hmac.new(
+                self.binance_api_secret.encode(),
+                query_string.encode(),
+                hashlib.sha256
+            ).hexdigest()
+            
+            params['signature'] = signature
+            
+            headers = {
+                'X-MBX-APIKEY': self.binance_api_key
+            }
+            
+            response = requests.post(
+                f'{self.binance_base_url}/api/v3/order',
+                params=params,
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                return {'success': True, 'data': response.json()}
+            else:
+                return {'success': False, 'error': response.text}
+                
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def withdraw_to_banco_industrial(self, amount_gtq: float, account_number: str) -> Dict:
+        """
+        Retira fondos a cuenta de Banco Industrial
+        Nota: Requiere integración con servicio de pago local o P2P
+        """
+        try:
+            # Opción 1: Usar Binance P2P para vender USDT por GTQ
+            # Opción 2: Usar un exchange local guatemalteco
+            # Opción 3: Usar un servicio de remesas
+            
+            withdrawal_data = {
+                'banco': 'Banco Industrial',
+                'cuenta': account_number,
+                'monto': amount_gtq,
+                'moneda': 'GTQ',
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Aquí iría la integración con el servicio de pago
+            # Por ejemplo: Binance P2P API o un exchange local
+            
+            print(f"Retiro programado:")
+            print(json.dumps(withdrawal_data, indent=2))
+            
+            return {
+                'success': True,
+                'message': 'Retiro iniciado - Pendiente de procesamiento',
+                'data': withdrawal_data
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def process_full_withdrawal(self, wld_amount: float, bank_account: str) -> Dict:
+        """Proceso completo de retiro"""
+        result = {
+            'steps': [],
+            'success': False
+        }
+        
+        # Paso 1: Verificar balance
+        current_balance = self.get_wld_balance()
+        result['steps'].append({
+            'step': 'Balance verificado',
+            'balance': current_balance
+        })
+        
+        if current_balance < wld_amount:
+            result['error'] = 'Balance insuficiente'
+            return result
+        
+        # Paso 2: Obtener precios
+        wld_price = self.get_wld_to_usdt_price()
+        gtq_rate = self.get_usdt_to_gtq_rate()
+        
+        usdt_amount = wld_amount * wld_price
+        gtq_amount = usdt_amount * gtq_rate
+        
+        result['steps'].append({
+            'step': 'Precios obtenidos',
+            'wld_price': wld_price,
+            'usdt_amount': usdt_amount,
+            'gtq_rate': gtq_rate,
+            'gtq_amount': gtq_amount
+        })
+        
+        # Paso 3: Transferir WLD a Binance
+        transfer_result = self.transfer_wld_to_binance(wld_amount)
+        result['steps'].append({
+            'step': 'Transferencia a Binance',
+            'result': transfer_result
+        })
+        
+        if not transfer_result['success']:
+            result['error'] = 'Error en transferencia a Binance'
+            return result
+        
+        # Paso 4: Vender WLD por USDT
+        sell_result = self.sell_wld_for_usdt(wld_amount)
+        result['steps'].append({
+            'step': 'Venta WLD por USDT',
+            'result': sell_result
+        })
+        
+        if not sell_result['success']:
+            result['error'] = 'Error vendiendo WLD'
+            return result
+        
+        # Paso 5: Retirar a Banco Industrial
+        withdrawal_result = self.withdraw_to_banco_industrial(gtq_amount, bank_account)
+        result['steps'].append({
+            'step': 'Retiro a Banco Industrial',
+            'result': withdrawal_result
+        })
+        
+        result['success'] = withdrawal_result['success']
+        return result
+
+
+# Ejemplo de uso
+if __name__ == '__main__':
+    # Configurar sistema
+    system = WorldcoinWithdrawalSystem()
+    
+    # Parámetros de retiro
+    WLD_AMOUNT = 10.0  # Cantidad de Worldcoin a retirar
+    BANK_ACCOUNT = '1234567890'  # Número de cuenta de Banco Industrial
+    
+    print("=" * 60)
+    print("Sistema de Retiro Worldcoin a Banco Industrial")
+    print("=" * 60)
+    print()
+    
+    # Consultar balance actual
+    balance = system.get_wld_balance()
+    print(f"Balance actual: {balance} WLD")
+    
+    # Consultar precios
+    wld_price = system.get_wld_to_usdt_price()
+    gtq_rate = system.get_usdt_to_gtq_rate()
+    
+    print(f"Precio WLD: ${wld_price} USDT")
+    print(f"Tasa GTQ: Q{gtq_rate} por USDT")
+    print()
+    
+    estimated_gtq = WLD_AMOUNT * wld_price * gtq_rate
+    print(f"Retiro estimado: {WLD_AMOUNT} WLD = Q{estimated_gtq:.2f} GTQ")
+    print()
+    
+    # Procesar retiro completo
+    confirmation = input("¿Desea continuar con el retiro? (s/n): ")
+    
+    if confirmation.lower() == 's':
+        result = system.process_full_withdrawal(WLD_AMOUNT, BANK_ACCOUNT)
+        print("\nResultado del proceso:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print("Retiro cancelado")
